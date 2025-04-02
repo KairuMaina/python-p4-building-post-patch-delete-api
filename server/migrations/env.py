@@ -1,91 +1,155 @@
-from __future__ import with_statement
+from flask import Flask, request, make_response
+from flask_sqlalchemy import SQLAlchemy
+from flask_migrate import Migrate
 
-import logging
-from logging.config import fileConfig
+from models import db, User, Review, Game
 
-from flask import current_app
+app = Flask(__name__)
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///app.db'
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+app.json.compact = False
 
-from alembic import context
+migrate = Migrate(app, db)
 
-# this is the Alembic Config object, which provides
-# access to the values within the .ini file in use.
-config = context.config
+db.init_app(app)
 
-# Interpret the config file for Python logging.
-# This line sets up loggers basically.
-fileConfig(config.config_file_name)
-logger = logging.getLogger('alembic.env')
+@app.route('/')
+def index():
+    return "Index for Game/Review/User API"
 
-# add your model's MetaData object here
-# for 'autogenerate' support
-# from myapp import mymodel
-# target_metadata = mymodel.Base.metadata
-config.set_main_option(
-    'sqlalchemy.url',
-    str(current_app.extensions['migrate'].db.get_engine().url).replace(
-        '%', '%%'))
-target_metadata = current_app.extensions['migrate'].db.metadata
+@app.route('/games')
+def games():
 
-# other values from the config, defined by the needs of env.py,
-# can be acquired:
-# my_important_option = config.get_main_option("my_important_option")
-# ... etc.
+    games = []
+    for game in Game.query.all():
+        game_dict = game.to_dict()
+        games.append(game_dict)
 
-
-def run_migrations_offline():
-    """Run migrations in 'offline' mode.
-
-    This configures the context with just a URL
-    and not an Engine, though an Engine is acceptable
-    here as well.  By skipping the Engine creation
-    we don't even need a DBAPI to be available.
-
-    Calls to context.execute() here emit the given string to the
-    script output.
-
-    """
-    url = config.get_main_option("sqlalchemy.url")
-    context.configure(
-        url=url, target_metadata=target_metadata, literal_binds=True
+    response = make_response(
+        games,
+        200
     )
 
-    with context.begin_transaction():
-        context.run_migrations()
+    return response
 
+@app.route('/games/<int:id>')
+def game_by_id(id):
+    game = Game.query.filter(Game.id == id).first()
 
-def run_migrations_online():
-    """Run migrations in 'online' mode.
+    game_dict = game.to_dict()
 
-    In this scenario we need to create an Engine
-    and associate a connection with the context.
+    response = make_response(
+        game_dict,
+        200
+    )
 
-    """
+    return response
 
-    # this callback is used to prevent an auto-migration from being generated
-    # when there are no changes to the schema
-    # reference: http://alembic.zzzcomputing.com/en/latest/cookbook.html
-    def process_revision_directives(context, revision, directives):
-        if getattr(config.cmd_opts, 'autogenerate', False):
-            script = directives[0]
-            if script.upgrade_ops.is_empty():
-                directives[:] = []
-                logger.info('No changes in schema detected.')
+@app.route('/reviews', methods=['GET', 'POST'])
+def reviews():
 
-    connectable = current_app.extensions['migrate'].db.get_engine()
+    if request.method == 'GET':
+        reviews = []
+        for review in Review.query.all():
+            review_dict = review.to_dict()
+            reviews.append(review_dict)
 
-    with connectable.connect() as connection:
-        context.configure(
-            connection=connection,
-            target_metadata=target_metadata,
-            process_revision_directives=process_revision_directives,
-            **current_app.extensions['migrate'].configure_args
+        response = make_response(
+            reviews,
+            200
         )
 
-        with context.begin_transaction():
-            context.run_migrations()
+        return response
 
+    elif request.method == 'POST':
+        new_review = Review(
+            score=request.form.get("score"),
+            comment=request.form.get("comment"),
+            game_id=request.form.get("game_id"),
+            user_id=request.form.get("user_id"),
+        )
 
-if context.is_offline_mode():
-    run_migrations_offline()
-else:
-    run_migrations_online()
+        db.session.add(new_review)
+        db.session.commit()
+
+        review_dict = new_review.to_dict()
+
+        response = make_response(
+            review_dict,
+            201
+        )
+
+        return response
+
+@app.route('/reviews/<int:id>', methods=['GET', 'PATCH', 'DELETE'])
+def review_by_id(id):
+    review = Review.query.filter(Review.id == id).first()
+
+    if review == None:
+        response_body = {
+            "message": "This record does not exist in our database. Please try again."
+        }
+        response = make_response(response_body, 404)
+
+        return response
+
+    else:
+        if request.method == 'GET':
+            review_dict = review.to_dict()
+
+            response = make_response(
+                review_dict,
+                200
+            )
+
+            return response
+
+        elif request.method == 'PATCH':
+            for attr in request.form:
+                setattr(review, attr, request.form.get(attr))
+
+            db.session.add(review)
+            db.session.commit()
+
+            review_dict = review.to_dict()
+
+            response = make_response(
+                review_dict,
+                200
+            )
+
+            return response
+
+        elif request.method == 'DELETE':
+            db.session.delete(review)
+            db.session.commit()
+
+            response_body = {
+                "delete_successful": True,
+                "message": "Review deleted."
+            }
+
+            response = make_response(
+                response_body,
+                200
+            )
+
+            return response
+
+@app.route('/users')
+def users():
+
+    users = []
+    for user in User.query.all():
+        user_dict = user.to_dict()
+        users.append(user_dict)
+
+    response = make_response(
+        users,
+        200
+    )
+
+    return response
+
+if __name__ == '__main__':
+    app.run(port=5555, debug=True)
